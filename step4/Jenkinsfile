@@ -182,8 +182,11 @@ fi
 echo "[EC2][GREEN] docker-compose pull (이미지 갱신)"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} pull || true
 
+echo "[EC2][BLUE] 기존 컨테이너 down"
+docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} down || true
 echo "[EC2][GREEN] 기존 컨테이너 down"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} down || true
+
 
 echo "[EC2][GREEN] 기존 이미지 삭제 (compose에서 사용하는 이미지만)"
 IMAGES=$(docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} images -q || true)
