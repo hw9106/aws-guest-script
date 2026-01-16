@@ -19,9 +19,10 @@ pipeline {
         
        // ===== EC2 =====
         EC2_USER='ubuntu'
-        EC2_HOST='43.201.114.152'
+        EC2_HOST='15.164.228.132'
         EC2_APP_DIR='/home/ubuntu/aws-guest-script'
-        DOCKER_COMPOSE_FILE='./deploy/docker-compose-guest-mysql-image.yml'
+        STEP_NUM='step2'
+        DOCKER_COMPOSE_FILE='docker-compose-guest-mysql-image.yml'
         //DOCKER_COMPOSE_FILE='docker-compose-guest-mysql.yml'
         // Jenkins → Credentials → SSH Username with private key
         EC2_SSH_CREDENTIALS   = 'deploy-ssh-key'
@@ -46,14 +47,14 @@ pipeline {
         stage('Docker File Checkout Docker Build & Push') {
             steps {
                echo "==== Git Checkout 시작 ===="
-               checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "*/main"]],
-                    userRemoteConfigs: [[
-                        url: "${GITHUB_SCRIPT_URL}"
-                    ]]
-               ])
+               checkout scmGit(
+                        branches: [[name: '*/main']],
+                        extensions: [[$class: 'SparseCheckoutPaths',
+                                     sparseCheckoutPaths: [[path: "/${STEP_NUM}"]]]],
+                                     userRemoteConfigs: [[url: "${GITHUB_SCRIPT_URL}"]]
+                        )
                 echo "==== Git Checkout 완료 ===="
+
                 withCredentials([usernamePassword(
                     credentialsId: env.DOCKERHUB_CREDENTIALS,
                     usernameVariable: 'DOCKERHUB_USER',
@@ -62,7 +63,7 @@ pipeline {
                 {
                 sh '''
                     echo "jar 파일 복사"
-                    cp ./build/libs/app.jar ./docker/app.jar
+                    cp ./build/libs/app.jar ./build/app.jar
                     docker build  -t "${DOCKERHUB_USER}/guest" ./docker
                     echo "${DOCKERHUB_PASS}" | docker login -u "${DOCKERHUB_USER}" --password-stdin
                     docker push "${DOCKERHUB_USER}/guest"
