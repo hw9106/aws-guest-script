@@ -32,4 +32,5 @@ services:
     restart: on-failure 
 volumes:
   mysql_volume:
+    external: true
     

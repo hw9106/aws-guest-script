@@ -58,6 +58,22 @@ pwd
 
 echo "[EC2][BLUE] 디렉토리 파일 목록:"
 ls -al
+#############################################################
+echo "[EC2][BLUE] guest_network 네트워크 존재 여부 확인"
+if docker network inspect guest_network >/dev/null 2>&1; then
+  echo "[EC2][BLUE] guest_network 이미 존재함"
+else
+  echo "[EC2][BLUE] guest_network 생성"
+  docker network create guest_network
+fi
+
+echo "[EC2][BLUE] mysql_volume 볼륨 생성"
+if docker volume inspect mysql_volume >/dev/null 2>&1; then
+    echo "[EC2][BLUE] 이미 mysql_volume 이 존재합니다."
+else
+    echo "[EC2][BLUE] mysql_volume 생성중..."
+    docker volume create mysql_volume
+fi
 
 echo "[EC2][BLUE] docker-compose pull (이미지 갱신)"
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_FILE} pull || true
@@ -123,6 +139,23 @@ pwd
 
 echo "[EC2][GREEN] 디렉토리 파일 목록:"
 ls -al
+###############################################################
+echo "[EC2][GREEN] guest_network 네트워크 존재 여부 확인"
+if docker network inspect guest_network >/dev/null 2>&1; then
+  echo "[EC2][GREEN] guest_network 이미 존재함"
+else
+  echo "[EC2][GREEN] guest_network 생성"
+  docker network create guest_network
+fi
+
+echo "[EC2][GREEN] mysql_volume 볼륨 생성"
+if docker volume inspect mysql_volume >/dev/null 2>&1; then
+    echo "[EC2][GREEN] 이미 mysql_volume 이 존재합니다."
+else
+    echo "[EC2][GREEN] mysql_volume 생성중..."
+    docker volume create mysql_volume
+fi
+
 
 echo "[EC2][GREEN] docker-compose pull (이미지 갱신)"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_FILE} pull || true
