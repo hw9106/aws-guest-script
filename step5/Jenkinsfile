@@ -35,15 +35,7 @@ pipeline {
         /***********************
          * 1. 소스 체크아웃 & Gradle 빌드
          ***********************/
-        stage('Source Build') {
-            steps {
-                git branch: 'main',
-                url: "${GITHUB_SOURCE_URL}",
-                credentialsId: env.GITHUB_CREDENTIALS
-              
-            }
-        }
-
+      
         
         // stage('Source Build[/guest-frontend]') {
         //     steps {
@@ -68,6 +60,22 @@ pipeline {
          * 2.  Docker 이미지 빌드 & DockerHub 푸시
          ***********************/
         stage('Docker File Checkout Docker Build & Push') {
+           steps {
+            echo "==== Source Checkout (guest_backend) 시작 ===="
+            checkout([
+                $class: 'GitSCM',
+                branches: [[name: '*/main']],
+                userRemoteConfigs: [[
+                    url: "${GITHUB_SOURCE_URL}",
+                    credentialsId: env.GITHUB_CREDENTIALS
+                ]],
+                extensions: [
+                    [$class: 'SparseCheckoutPaths', sparseCheckoutPaths: [
+                        [path: 'guest_backend/']
+                    ]]
+                ]
+            ])
+            echo "==== Source Checkout 완료 ===="
             steps {
                echo "==== Git Checkout 시작 ===="
                checkout scmGit(
@@ -92,7 +100,7 @@ pipeline {
                     ls -al guest_backend || true
                     ls -al ./${STEP_NUM}/build/docker/backend || true
 
-                    # ✅ Dockerfile은 step2에, 컨텍스트는 guest_backend
+                    # ✅ Dockerfile은 step5에, 컨텍스트는 guest_backend
                     docker build \
                     -t "${DOCKERHUB_USER}/guest-backend" \
                     -f "./${STEP_NUM}/build/docker/backend/Dockerfile" \
