@@ -53,6 +53,7 @@ pipeline {
             ])
              echo "==== Source Checkout 완료 ===="
            }
+        }
         /***********************
          * 2.  Docker 이미지 빌드 & DockerHub 푸시
          ***********************/
