@@ -50,8 +50,10 @@ pipeline {
                         ]]
                     ]
                 ])
-                sh "chmod +x ./gradlew"
-                sh "./gradlew clean build"
+                dir('guest_backend') {
+                    sh "chmod +x gradlew"
+                    sh "./gradlew clean build"
+                }
             }
         }
         /***********************
