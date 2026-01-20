@@ -1,35 +1,43 @@
 pipeline {
-  agent any
+    agent any
 
-  tools {
-    gradle 'gradle-7.6.1'
-    jdk 'jdk-17'
-  }
-
-  parameters {
-    string(name: 'GITHUB_USERNAME', defaultValue: 'hw9106', description: 'GitHub 사용자명을 입력하세요.')
-  }
-
-  environment {
-    GITHUB_SCRIPT_URL = "https://github.com/${GITHUB_USERNAME}/aws-guest-script.git"
-
-    EC2_USER='ubuntu'
-    EC2_HOST='43.203.168.108'
-    EC2_APP_DIR='/home/ubuntu/aws-guest-script'
-    STEP_NUM='step4'
-    DOCKER_COMPOSE_MYSQL_FILE='docker-compose-mysql-image.yml'
-    DOCKER_COMPOSE_GUEST_FILE='docker-compose-guest-image.yml'
-
-    EC2_SSH_CREDENTIALS='deploy-ssh-key'
-    DOCKERHUB_CREDENTIALS='dockerhub-credentials'
-  }
-
-  stages {
-    stage('EC2 블루 배포') {
-      steps {
-        sshagent([env.EC2_SSH_CREDENTIALS]) {
-          sh '''
-ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} <<'EOF'
+    tools {
+        gradle 'gradle-7.6.1'
+        jdk 'jdk-17'
+    }
+    /***********************
+     * 환경 설정
+     ***********************/
+    parameters {
+        // GitHub  사용자명 입력
+        string(name: 'GITHUB_USERNAME',  defaultValue: '2025-07-JAVA-DEVELOPER-162', description: 'GitHub  사용자명을 입력하세요.')
+    }
+    environment {
+       // ===== Git Repositories =====
+        GITHUB_SCRIPT_URL = "https://github.com/${GITHUB_USERNAME}/aws-guest-script.git"
+        
+       // ===== EC2 =====
+        EC2_USER='ubuntu'
+        EC2_HOST='15.164.228.132'
+        EC2_APP_DIR='/home/ubuntu/aws-guest-script'
+        STEP_NUM='step4'
+        DOCKER_COMPOSE_MYSQL_FILE='docker-compose-mysql-image.yml'
+        DOCKER_COMPOSE_GUEST_FILE='docker-compose-guest-image.yml'
+        //DOCKER_COMPOSE_FILE='docker-compose-guest-mysql.yml'
+        // Jenkins → Credentials → SSH Username with private key
+        EC2_SSH_CREDENTIALS   = 'deploy-ssh-key'
+        // Jenkins → Credentials → Username with password (DockerHub 로그인용)
+        DOCKERHUB_CREDENTIALS = 'dockerhub-credentials'
+    }
+    stages {
+        /***********************
+         * 1. EC2에 접속하여 git + docker-compose 블루 배포
+         ***********************/
+        stage('EC2 블루 배포') {
+            steps {
+                sshagent([env.EC2_SSH_CREDENTIALS]) {
+        sh '''
+ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} <<EOF
 set -e
 echo "[EC2][BLUE] 배포 디렉토리: ${EC2_APP_DIR}"
 
@@ -41,43 +49,88 @@ echo "[EC2][BLUE] Git sparse checkout: ${GITHUB_SCRIPT_URL}"
 git init
 git remote add origin ${GITHUB_SCRIPT_URL}
 git config core.sparseCheckout true
+
+# sparse checkout path:
 echo "${STEP_NUM}/deploy/" >> .git/info/sparse-checkout
 git pull origin main
 
+echo "[EC2][BLUE] 현재 디렉토리:"
+pwd
+
+echo "[EC2][BLUE] 디렉토리 파일 목록:"
 ls -al
+#############################################################
+echo "[EC2][BLUE] guest_network 네트워크 존재 여부 확인"
+if docker network inspect guest_network >/dev/null 2>&1; then
+  echo "[EC2][BLUE] guest_network 이미 존재함"
+else
+  echo "[EC2][BLUE] guest_network 생성"
+  docker network create guest_network
+fi
 
-# 네트워크/볼륨
-docker network inspect guest_network >/dev/null 2>&1 || docker network create guest_network
-docker volume inspect mysql_volume >/dev/null 2>&1 || docker volume create mysql_volume
+echo "[EC2][BLUE] mysql_volume 볼륨 생성"
+if docker volume inspect mysql_volume >/dev/null 2>&1; then
+    echo "[EC2][BLUE] 이미 mysql_volume 이 존재합니다."
+else
+    echo "[EC2][BLUE] mysql_volume 생성중..."
+    docker volume create mysql_volume
+fi
 
+echo "[EC2][BLUE] docker-compose pull (이미지 갱신)"
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_MYSQL_FILE} pull || true
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} pull || true
 
+echo "[EC2][BLUE] 기존 컨테이너 down"
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_MYSQL_FILE} down || true
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} down || true
 
+echo "[EC2][BLUE] 기존 이미지 삭제 (compose에서 사용하는 이미지만)"
+IMAGES=$(docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_MYSQL_FILE} images -q || true)
+if [ -n "$IMAGES" ]; then
+    echo "[EC2][BLUE]  삭제할 이미지: $IMAGES"
+    docker rmi $IMAGES || true
+else
+    echo "[EC2][BLUE] 삭제할 이미지 없음"
+fi
+IMAGES=$(docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} images -q || true)
+if [ -n "$IMAGES" ]; then
+    echo "[EC2][BLUE]  삭제할 이미지: $IMAGES"
+    docker rmi $IMAGES || true
+else
+    echo "[EC2][BLUE] 삭제할 이미지 없음"
+fi
+
+
+echo "[EC2][BLUE]  Dangling 이미지 정리"
+docker image prune -f || true
+
+echo "[EC2][BLUE] 새로운 컨테이너 up -d"
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_MYSQL_FILE} up -d
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} up -d
 
+echo "[EC2][BLUE] 컨테이너 상태 확인"
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_MYSQL_FILE} ps
 docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} ps
+
 EOF
 '''
-        }
-      }
-    }
-
-    stage('Green 자동배포 시작') {
-      steps {
-        input message: '자동배포 시작', ok: "Yes"
-      }
-    }
-
-    stage('EC2 그린 배포') {
-      steps {
-        sshagent([env.EC2_SSH_CREDENTIALS]) {
-          sh '''
-ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} <<'EOF'
+                    }
+                }
+            }
+            
+            stage('Green 자동배포 시작') {
+                steps {
+                    input message: '자동배포 시작', ok: "Yes"
+                }
+            }
+            /***********************
+         * 2. EC2에 접속하여 git + docker-compose Green 배포
+         ***********************/
+        stage('EC2 그린 배포') {
+            steps {
+                sshagent([env.EC2_SSH_CREDENTIALS]) {
+        sh '''
+ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} <<EOF
 set -e
 echo "[EC2][GREEN] 배포 디렉토리: ${EC2_APP_DIR}"
 
@@ -89,31 +142,85 @@ echo "[EC2][GREEN] Git sparse checkout: ${GITHUB_SCRIPT_URL}"
 git init
 git remote add origin ${GITHUB_SCRIPT_URL}
 git config core.sparseCheckout true
+
+# sparse checkout path:
 echo "${STEP_NUM}/deploy/" >> .git/info/sparse-checkout
 git pull origin main
 
+echo "[EC2][GREEN] 현재 디렉토리:"
+pwd
+
+echo "[EC2][GREEN] 디렉토리 파일 목록:"
 ls -al
+###############################################################
+echo "[EC2][GREEN] guest_network 네트워크 존재 여부 확인"
+if docker network inspect guest_network >/dev/null 2>&1; then
+  echo "[EC2][GREEN] guest_network 이미 존재함"
+else
+  echo "[EC2][GREEN] guest_network 생성"
+  docker network create guest_network
+fi
 
-docker network inspect guest_network >/dev/null 2>&1 || docker network create guest_network
-docker volume inspect mysql_volume >/dev/null 2>&1 || docker volume create mysql_volume
+echo "[EC2][GREEN] mysql_volume 볼륨 생성"
+if docker volume inspect mysql_volume >/dev/null 2>&1; then
+    echo "[EC2][GREEN] 이미 mysql_volume 이 존재합니다."
+else
+    echo "[EC2][GREEN] mysql_volume 생성중..."
+    docker volume create mysql_volume
+fi
 
-docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_MYSQL_FILE} pull || true
-docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_MYSQL_FILE} up -d || true
+echo "[EC2][GREEN] MySQL 컨테이너 확인 및 생성"
+if docker ps -a --format '{{.Names}}' | grep -q '^mysql_compose_container\$'; then
+  echo "[EC2][GREEN] mysql_compose_container 이미 존재함 → 재사용"
+   docker start mysql_compose_container || true
+else
+  echo "[EC2][GREEN] mysql_compose_container 없음 → 새로 생성"
+  docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_MYSQL_FILE} pull || true
+  docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_MYSQL_FILE} up -d
+fi
 
+echo "[EC2][GREEN] docker-compose pull (이미지 갱신)"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} pull || true
 
+echo "[EC2][BLUE] 기존 컨테이너 down"
+docker compose -f ./${STEP_NUM}/deploy/blue/${DOCKER_COMPOSE_GUEST_FILE} down || true
+echo "[EC2][GREEN] 기존 컨테이너 down"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} down || true
+
+
+echo "[EC2][GREEN] 기존 이미지 삭제 (compose에서 사용하는 이미지만)"
+IMAGES=$(docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} images -q || true)
+if [ -n "$IMAGES" ]; then
+    echo "[EC2][GREEN]  삭제할 이미지: $IMAGES"
+    docker rmi $IMAGES || true
+else
+    echo "[EC2][GREEN] 삭제할 이미지 없음"
+fi
+
+echo "[EC2][GREEN]  Dangling 이미지 정리"
+docker image prune -f || true
+
+echo "[EC2][GREEN] 새로운 컨테이너 up -d"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} up -d
+
+echo "[EC2][GREEN] 컨테이너 상태 확인"
 docker compose -f ./${STEP_NUM}/deploy/green/${DOCKER_COMPOSE_GUEST_FILE} ps
+
 EOF
 '''
+                    }
+                }
+            }
         }
-      }
-    }
-  }
-
-  post {
-    success { echo "✅ EC2 그린 배포 성공!" }
-    failure { echo "❌ EC2 그린 실패. 콘솔 로그를 확인하세요." }
-  }
+        
+        post {
+                success {
+                    echo "✅ EC2 그린 배포 성공!"
+                }
+                failure {
+                    echo "❌ EC2 그린 실패. 콘솔 로그를 확인하세요."
+                }
+        }
+       
+    
 }
