@@ -14,7 +14,7 @@ pipeline {
     }
     environment {
        // ===== Git Repositories =====
-        GITHUB_SCRIPT_URL = "https://github.com/hw9106/aws-guest-script.git"
+        GITHUB_SCRIPT_URL = "https://github.com/${GITHUB_USERNAME}/aws-guest-script.git"
         
        // ===== EC2 =====
         EC2_USER='ubuntu'
